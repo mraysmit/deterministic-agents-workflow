@@ -1,0 +1,53 @@
+# Build output
+**/target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*~
+.project
+.classpath
+.settings/
+.factorypath
+*.class
+nb-configuration.xml
+nbproject/
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+**/logs/
+*.log
+*.log.lck
+
+# Editor history
+.history/
+
+# Maven
+dependency-reduced-pom.xml
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# Runtime / packaging
+META-INF/
+
+# Environment
+.env
+*.env
+
+# Node (pptxgenjs / scripts)
+node_modules/
+package.json
+package-lock.json
+
+# Generated presentation output
+*.pptx
