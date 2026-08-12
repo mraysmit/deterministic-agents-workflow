@@ -69,7 +69,7 @@ class PipelineConfigLoaderTest {
   @Test
   void yaml_llm_is_parsed() {
     PipelineConfig cfg = PipelineConfigLoader.load("pipeline.yaml");
-    assertEquals("stub", cfg.llm().type());
+    assertEquals("openai", cfg.llm().type());
   }
 
   @Test

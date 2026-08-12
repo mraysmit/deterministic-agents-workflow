@@ -34,21 +34,25 @@ import io.vertx.core.json.JsonObject;
  *
  * <h2>Implementations</h2>
  * <ul>
- *   <li>{@link StubLlmClient} — rule-based stub for local development
- *       and testing; no network calls.</li>
- *   <li>{@link OpenAiLlmClient} — placeholder for a real LLM integration
- *       (e.g. OpenAI, Azure OpenAI, Anthropic). Replace the stub with
- *       this in {@code MainVerticle} to enable real LLM-driven decisions.</li>
+ *   <li>{@link OpenAiLlmClient} — calls a real LLM via the OpenAI Chat
+ *       Completions API (also compatible with Azure OpenAI and any
+ *       provider exposing the same REST shape) using function-calling.</li>
  * </ul>
  *
- * <p>The contract is intentionally simple so that the same interface can be
- * backed by a local stub, an HTTP call to an LLM provider, or a
- * retrieval-augmented pipeline.
+ * <p>This is a {@link FunctionalInterface}, so tests that need to drive the
+ * runner with a specific command can supply one inline:
+ * <pre>
+ * LlmClient llm = (event, state) -&gt; Future.succeededFuture(
+ *     new JsonObject().put("intent", "CALL_TOOL")...);
+ * </pre>
+ * That is the <b>only</b> sanctioned substitute. Do not add a scripted or
+ * rule-based implementation to production code: it makes the agent path
+ * appear covered while testing nothing but the script.
  *
  * @see dev.mars.agent.runner.AgentRunnerVerticle
- * @see StubLlmClient
  * @see OpenAiLlmClient
  */
+@FunctionalInterface
 public interface LlmClient {
 
   /**

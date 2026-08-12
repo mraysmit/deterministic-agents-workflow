@@ -58,7 +58,7 @@ import java.util.logging.LogManager;
  *
  * <h2>Factories</h2>
  * Short aliases in YAML (e.g. {@code "lookup-enrich"}, {@code "raise-ticket"},
- * {@code "stub"}) are resolved to concrete classes by:
+ * {@code "openai"}) are resolved to concrete classes by:
  * <ul>
  *   <li>{@link HandlerFactory} — deterministic failure handlers</li>
  *   <li>{@link ToolFactory} — agent tools</li>

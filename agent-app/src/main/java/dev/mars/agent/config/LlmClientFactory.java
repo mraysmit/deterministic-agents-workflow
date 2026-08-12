@@ -1,6 +1,5 @@
 package dev.mars.agent.config;
 
-import dev.mars.agent.handler.TradeFailureRuleLoader;
 import dev.mars.agent.llm.LlmClient;
 import dev.mars.agent.llm.OpenAiLlmClient;
 import dev.mars.mcp.tool.Tool;
@@ -19,18 +18,17 @@ import java.util.logging.Logger;
  * <table>
  *   <tr><th>Alias</th><th>Description</th><th>Required params</th></tr>
  *   <tr>
- *     <td>{@code stub}</td>
- *     <td>Rule-based stub using {@link TradeFailureRuleLoader}.
- *         No network calls — suitable for local dev and testing.</td>
- *     <td><em>none</em></td>
- *   </tr>
- *   <tr>
  *     <td>{@code openai}</td>
  *     <td>Calls a real LLM via the OpenAI Chat Completions API
  *         using function-calling.</td>
  *     <td>{@code endpoint}, {@code apiKey}, {@code model}</td>
  *   </tr>
  * </table>
+ *
+ * <p>There is deliberately no offline or rule-based client. The agent's
+ * decisions come from a real model or the application does not start —
+ * a scripted decision-maker would make the agent path untested while
+ * appearing to pass.
  *
  * <p>To add a new LLM backend, register it in the {@code switch}
  * expression in {@link #create}.
@@ -44,7 +42,7 @@ public final class LlmClientFactory {
   /**
    * Create an {@link LlmClient} from a type alias and parameters.
    *
-   * @param type   the client alias (e.g. {@code "stub"}, {@code "openai"})
+   * @param type   the client alias (currently only {@code "openai"})
    * @param params type-specific parameters from YAML
    * @param vertx  the Vert.x instance (needed by some implementations)
    * @param tools  the resolved agent tools (needed for function-calling schemas)
@@ -56,11 +54,6 @@ public final class LlmClientFactory {
                                   Vertx vertx, Collection<Tool> tools) {
     LOG.info("Creating LLM client: type=" + type);
     return switch (type) {
-      case "stub" -> {
-        LOG.info("Stub LLM client created with trade-failure rules");
-        yield new TradeFailureRuleLoader().load().toClient();
-      }
-
       case "openai" -> {
         String endpoint = requireParam(params, "endpoint", type);
         String apiKey   = resolveEnvVar(requireParam(params, "apiKey", type));
@@ -77,8 +70,8 @@ public final class LlmClientFactory {
   }
 
   /**
-   * Convenience overload for clients that don't need the tool list
-   * (e.g. {@code "stub"}).
+   * Convenience overload for callers that have no tools to advertise
+   * (the model is then given an empty function list).
    */
   public static LlmClient create(String type, Map<String, String> params, Vertx vertx) {
     return create(type, params, vertx, Collections.emptyList());

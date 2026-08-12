@@ -60,7 +60,7 @@ public class WorkflowUiVerticle extends AbstractVerticle {
    * @param eventsAddress    event bus address to subscribe to for domain events (e.g. "events.out")
    * @param requestTimeoutMs timeout for the pipeline request/reply
    * @param pipelineUiPort   port the Pipeline Config UI is running on (e.g. 8081)
-   * @param llmType          LLM client type (e.g. "openai", "stub")
+   * @param llmType          LLM client type (currently only "openai")
    * @param llmModel         LLM model name (e.g. "gpt-4o"), may be null
    */
   public WorkflowUiVerticle(String inboundAddress, String eventsAddress, long requestTimeoutMs, int pipelineUiPort,

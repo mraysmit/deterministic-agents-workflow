@@ -43,7 +43,11 @@ import java.util.List;
  *   - type: "raise-ticket"
  *
  * llm:
- *   type: "stub"
+ *   type: "openai"
+ *   params:
+ *     endpoint: "https://api.openai.com/v1"
+ *     apiKey: "${OPENAI_API_KEY}"
+ *     model: "gpt-4o"
  * </pre>
  *
  * @param addresses event bus address configuration

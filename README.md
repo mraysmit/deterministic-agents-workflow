@@ -4,7 +4,8 @@ A **multi-module Vert.x 5 project** demonstrating the hybrid deterministic-workf
 
 - **Deterministic processor** handles known failures via pluggable handlers.
 - **Agent boundary** only triggers when the failure is unknown/ambiguous.
-- The "LLM" is a **stub** that emits strict JSON commands (replace later).
+- The agent's decisions come from a **real LLM** via function-calling. There is
+  no offline or rule-based fallback — see [A note on stubs](#a-note-on-stubs).
 - **Tools are self-describing** with JSON Schema metadata aligned with MCP.
 - **Built-in MCP server** exposes tools via Streamable HTTP (2025-03-26) and legacy HTTP+SSE (2024-11-05) transports.
 
@@ -35,6 +36,16 @@ mvn -q package -DskipTests
 java -jar agent-app/target/agent-app-0.1.0-SNAPSHOT-fat.jar
 ```
 
+Running the application requires an API key — there is no offline mode:
+
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
+`mvn test` does **not** need one. The suite is split into two tiers: hermetic
+tests run always, and the tests that need a live model skip themselves unless
+`OPENAI_API_KEY` is set. See [Test Coverage](#test-coverage).
+
 - Agent HTTP API: **http://localhost:8080** (override with `http.port` in `pipeline.yaml`)
 - MCP server: **http://localhost:3001** (override with `mcp.port` in `pipeline.yaml`)
 
@@ -44,6 +55,11 @@ curl http://localhost:8080/health
 ```
 
 ## Try it
+
+Examples 1 is deterministic and repeatable. Everything from 2 onwards runs
+through the model, so the step counts and tool choices described below are
+**typical outcomes, not guarantees** — the agent decides at runtime and will
+not repeat itself exactly. Each needs `OPENAI_API_KEY` set.
 
 ### 1) Known deterministic workflow (no agent)
 ```bash
@@ -59,57 +75,54 @@ curl -s -X POST http://localhost:8080/trade/failures \
   -d '{"tradeId":"T-200","reason":"LEI not found in registry"}' | jq
 ```
 
-### 3) Sanctions screening — adaptive false-positive analysis (5 steps)
+### 3) Sanctions screening — adaptive false-positive analysis
 ```bash
 curl -s -X POST http://localhost:8080/trade/failures \
   -H 'content-type: application/json' \
   -d '{"tradeId":"T-800","reason":"OFAC screening flag on counterparty"}' | jq
 ```
-The agent gathers screening data, performs multi-factor false-positive analysis
-(jurisdiction, sector, entity structure, client history), classifies with
-regulatory citation (31 CFR § 501.604), and **chooses email over PagerDuty**
-because the evidence suggests a probable false positive — calibrated urgency
-that only an LLM can provide.
+`LookupTool` returns screening data for this trade ID — jurisdiction, sector,
+entity structure, client history, name-match quality. What the agent makes of
+it is up to the model: typically it weighs those factors, classifies, and picks
+a notification channel proportionate to the assessed risk.
 
-### 4) Multi-leg cascade — structural reasoning (5 steps)
+### 4) Multi-leg cascade — structural reasoning
 ```bash
 curl -s -X POST http://localhost:8080/trade/failures \
   -H 'content-type: application/json' \
   -d '{"tradeId":"T-900","reason":"Linked trade cascade failure on swap leg"}' | jq
 ```
-The agent discovers that a trivial SSI data error (BIC format) is blocking a
-$50M swap structure with 4 linked trades and $42,500/bp unhedged DV01 exposure.
-It classifies as **CRITICAL** (based on impact, not root cause complexity),
-publishes a cascade event to prevent duplicate downstream alerts, and sends
-**role-tailored notifications** to three different teams (Ops, Trading, Risk).
+The fixture describes a $50M swap structure with 4 linked trades, an SSI/BIC
+format error as root cause, and $42,500/bp unhedged DV01. The interesting
+question — whether the model classifies on impact rather than on the triviality
+of the root cause — is genuinely open on each run.
 
-### 5) Counterparty credit event — cross-domain portfolio analysis (5 steps)
+### 5) Counterparty credit event — cross-domain portfolio analysis
 ```bash
 curl -s -X POST http://localhost:8080/trade/failures \
   -H 'content-type: application/json' \
   -d '{"tradeId":"T-1000","reason":"Counterparty credit downgrade to CCC+"}' | jq
 ```
-The agent analyses a 5-notch downgrade across 4 positions ($19.8M gross, $5.1M
-net after ISDA netting + CSA collateral). It identifies that one position (IRS,
--$1.2M MtM) **must NOT be unwound** because it provides netting benefit — the
-kind of counter-intuitive insight that requires understanding both financial
-math and legal agreements simultaneously.
+The fixture holds a 5-notch downgrade across 4 positions ($19.8M gross, $5.1M
+net after ISDA netting and CSA collateral), including an IRS position at
+-$1.2M MtM that provides netting benefit. Whether the model spots that
+unwinding it would *increase* net exposure is the thing worth watching.
 
-### 6) Settlement amount mismatch — FX root-cause hypothesis (4 steps)
+### 6) Settlement amount mismatch — FX root-cause hypothesis
 ```bash
 curl -s -X POST http://localhost:8080/trade/failures \
   -H 'content-type: application/json' \
   -d '{"tradeId":"T-500","reason":"Settlement amount mismatch detected"}' | jq
 ```
 
-### 7) Duplicate trade detection — risk exposure analysis (4 steps)
+### 7) Duplicate trade detection — risk exposure analysis
 ```bash
 curl -s -X POST http://localhost:8080/trade/failures \
   -H 'content-type: application/json' \
   -d '{"tradeId":"T-600","reason":"Possible duplicate trade execution"}' | jq
 ```
 
-### 8) Regulatory deadline — compliance urgency (4 steps)
+### 8) Regulatory deadline — compliance urgency
 ```bash
 curl -s -X POST http://localhost:8080/trade/failures \
   -H 'content-type: application/json' \
@@ -180,55 +193,55 @@ externalised to `pipeline.yaml` and resolved at startup via factory classes.
 
 ---
 
-## LLM Showcase Scenarios
+## Scenario Data
 
-The agent includes **7 multi-step reasoning chains** (plus a fallback) that
-demonstrate capabilities requiring a real LLM — not just keyword matching.
-Each scenario is implemented as a stub rule that simulates what an LLM would
-produce; replace `StubLlmClient` with `OpenAiLlmClient` to get the same
-behaviour dynamically for **any** failure reason.
+The trade IDs used in the examples above seed realistic reference data through
+`LookupTool` — sanctions screening results for the T-800 range, multi-leg swap
+structures for T-900, portfolio and netting positions for T-1000, and so on.
+That data is a **fixture**: it is what the tools return when queried.
 
-### What makes these impossible without an LLM
+What the agent *does* with it is not scripted. Which tools it calls, in what
+order, how it classifies severity, and whether it escalates are all decided by
+the model at runtime, so **the same input will not produce identical output run
+to run**. Step counts and tool sequences vary.
 
-| Capability | Scenario | What the LLM does |
-|---|---|---|
-| **Multi-factor evidence weighing** | Sanctions screening (T-800) | Weighs 6 dimensions (jurisdiction, sector, entity type, ownership, history, name similarity) to assess false-positive probability at >90% confidence |
-| **Calibrated urgency** | Sanctions screening (T-800) | Chooses **email** over PagerDuty because screening hold means no settlement risk — avoids alert fatigue while ensuring regulatory review |
-| **Structural comprehension** | Multi-leg cascade (T-900) | Understands that a swap has pay/receive legs, hedges are linked, and a single SSI error cascades across 4 trades with $42,500/bp unhedged DV01 |
-| **Root-cause vs. impact distinction** | Multi-leg cascade (T-900) | Classifies as **CRITICAL** despite trivial root cause (BIC format) because the financial impact ($2.75M MtM) is massive — "5 minutes to fix, $850K at risk" |
-| **Role-tailored communication** | Multi-leg cascade (T-900) | One notification with different actionable content for 3 teams: fix instructions for Ops, hedge degradation warning for Trading, VaR metrics for Risk |
-| **Cross-domain reasoning** | Credit event (T-1000) | Simultaneously applies financial math (netting), ISDA legal analysis (Section 5(b)(v)), and portfolio risk assessment to produce a single coherent analysis |
-| **Counter-intuitive recommendations** | Credit event (T-1000) | Identifies that the IRS position (we **owe** $1.2M) must **NOT** be unwound because it provides netting benefit — the opposite of the naive instinct |
-| **Exposure waterfall calculation** | Credit event (T-1000) | Calculates Gross $19.8M → Net $8.6M (ISDA netting) → Net after collateral $5.1M (CSA), then prioritises actions by risk, not position size |
-| **Regulatory knowledge** | Sanctions (T-800), Regulatory (T-700) | Cites specific regulations (31 CFR § 501.604, SEC Rule 15c6-1) and understands their operational implications |
-| **FX root-cause hypothesis** | Settlement mismatch (T-500) | Correlates the $250K discrepancy (20%) with a EUR/USD rate movement (+0.30%) to hypothesise a T+1 FX rate timing issue |
-| **Pattern recognition** | Duplicate trade (T-600) | Recognises 3-second time delta + identical parameters as "retry-after-timeout" pattern and quantifies $1.25M unintended exposure |
+### A note on stubs
 
-### Scenario summary
+An earlier version of this project shipped a `StubLlmClient` that replayed
+hardcoded command chains for these trade IDs, and a README section claiming
+they demonstrated "capabilities requiring a real LLM." They did not — they
+demonstrated keyword matching against a `switch`. Worse, 39 of the then-186
+tests existed only to assert that those hardcoded scripts returned their own
+contents, which inflated the coverage numbers while the actual LLM integration
+sat behind two `assertNotNull` calls.
 
-| Scenario | Trade IDs | Steps | Key LLM capability |
-|---|---|---|---|
-| LEI missing | T-200 | 3 | Basic multi-step: lookup → classify → raise ticket |
-| Settlement mismatch | T-500 | 4 | FX correlation + root-cause hypothesis |
-| Duplicate trade | T-600 | 4 | Pattern recognition + risk quantification |
-| Regulatory deadline | T-700 | 4 | Time-critical compliance with SEC rule awareness |
-| **Sanctions screening** | **T-800** | **5** | **Adaptive false-positive analysis + calibrated urgency** |
-| **Multi-leg cascade** | **T-900** | **5** | **Structural reasoning + cross-domain impact analysis** |
-| **Credit event** | **T-1000** | **5** | **Portfolio netting + counter-intuitive recommendation** |
-| Fallback (any reason) | any | 3 | Graceful handling of unknown patterns |
+All of it has been removed, and `llm.type` no longer accepts anything but
+`openai`. The application cannot be configured to fake its own core function.
+
+The one sanctioned substitute is inline, in test code only: `LlmClient` is a
+`@FunctionalInterface`, so a test that needs to drive the runner with a
+specific command supplies a lambda —
+
+```java
+LlmClient llm = (event, state) -> Future.succeededFuture(
+    new JsonObject().put("intent", "CALL_TOOL").put("tool", "case.raiseTicket")...);
+```
+
+That is how `AgentRunnerVerticleTest` exercises step limits, unknown-tool
+rejection, and error paths. It carries no domain rules and makes no claim to
+be reasoning.
 
 ### The `reasoning` field
 
-Every step includes a `reasoning` field that explains the LLM's thought
-process. When using a real LLM, this becomes the model's actual chain-of-thought.
-The stub version demonstrates the **quality and depth** of reasoning expected:
+Every step includes a `reasoning` field carrying the model's own explanation
+for the decision. It is chain-of-thought from the LLM, not canned text:
 
 ```json
 {
   "intent": "CALL_TOOL",
   "tool": "comms.notify",
   "args": { "channel": "email", "team": "Compliance + Legal", ... },
-  "reasoning": "I'm choosing EMAIL over PagerDuty because this is assessed as a probable false positive with the trade already safely on hold. PagerDuty would be appropriate for a high-confidence true positive where immediate blocking action is needed...",
+  "reasoning": "Choosing email over PagerDuty — the trade is already on hold, so there is no settlement risk requiring an immediate page...",
   "stop": true
 }
 ```
@@ -349,7 +362,7 @@ For example, `RaiseTicketTool` exposes:
 
 ### The Command Protocol
 
-The LLM (or stub) communicates with the agent runner using a simple JSON
+The LLM communicates with the agent runner using a simple JSON
 command format that mirrors MCP's `tools/call` request:
 
 ```json
@@ -382,8 +395,8 @@ command format that mirrors MCP's `tools/call` request:
 
 The key architectural decision — that **the runner does not choose tools** but
 instead validates and dispatches commands from an external decision-maker (LLM)
-— is exactly the MCP client pattern. Swapping `StubLlmClient` for a real LLM
-with MCP-compatible function-calling requires no changes to the tool layer.
+— is exactly the MCP client pattern. Swapping in a different LLM backend with
+MCP-compatible function-calling requires no changes to the tool layer.
 
 ### Path to Further MCP Adoption
 
@@ -395,9 +408,11 @@ with MCP-compatible function-calling requires no changes to the tool layer.
 2. ~~**Expose tools as an MCP server**~~ — ✅ Done. `McpServerVerticle`
    serves `tools/list` and `tools/call` over Streamable HTTP and legacy SSE.
 
-3. **Replace `StubLlmClient`** — use `OpenAiLlmClient` (placeholder in
-   `llm/OpenAiLlmClient.java`) with function-calling, passing tool schemas
-   as the function definitions.
+3. ~~**Replace `StubLlmClient`**~~ — ✅ Done. `OpenAiLlmClient`
+   (`llm/OpenAiLlmClient.java`) is fully implemented: it sends each tool's
+   `schema()` as an OpenAI function definition and maps the model's
+   `tool_calls` response back onto the command protocol. Select it with
+   `llm.type: openai` in `pipeline.yaml`.
 
 ---
 
@@ -411,7 +426,7 @@ with MCP-compatible function-calling requires no changes to the tool layer.
 | `DeterministicFailureProcessorVerticle` | `agent-core` | Normal service — fast, predictable, strategy-pattern handlers |
 | `AgentRunnerVerticle` | `agent-core` | Step-limited agent runner + tool dispatch (MCP client pattern) |
 | `HttpApiVerticle` | `agent-core` | HTTP ingress with schema validation |
-| `StubLlmClient` | `agent-core` | Rule-based stub returning strict JSON commands |
+| `OpenAiLlmClient` | `agent-core` | Real LLM via Chat Completions + function-calling |
 | `MainVerticle` | `agent-app` | Application bootstrap — deploys all verticles from YAML config |
 | `pipeline.yaml` | `agent-app` | All configuration externalised — addresses, handlers, tools, LLM, MCP |
 | `config/` package | `agent-app` | Factory classes for YAML-driven wiring |
@@ -430,7 +445,26 @@ factories resolve YAML aliases to concrete classes.
 
 ## Test Coverage
 
-24 test classes / 100 test cases across all three modules covering:
+**147 tests across three modules**, split into two tiers.
+
+**Hermetic tier — runs on every build.** No API key, no network, no cost.
+Covers everything except the model's own decisions.
+
+**Live tier — gated on `OPENAI_API_KEY`.** Annotated
+`@EnabledIfEnvironmentVariable`, so it skips silently when the variable is
+absent and runs automatically when it is present. Assertions here are
+deliberately structural — that the agent path routed, terminated, and produced
+a result — never that a specific tool was chosen or specific wording returned,
+because a real model does not repeat itself.
+
+> **Known gap.** `OpenAiLlmClient`'s request construction, `tool_calls`
+> parsing, and tool-name sanitisation round-trip are still only covered by a
+> constructor check and an unreachable-endpoint check. A hermetic test against
+> a canned HTTP response on localhost would close this without needing a key.
+> Faking the *transport* to test the parser is legitimate; faking the *model's
+> decisions* is what this project just removed.
+
+Coverage by module:
 
 **mcp-server**
 - `ToolRegistry` immutability, lookup, and registration
@@ -438,11 +472,12 @@ factories resolve YAML aliases to concrete classes.
 
 **agent-core**
 - Config record validation and defensive copying (`HttpConfig`, `McpConfig`, `LlmConfig`, `HandlerConfig`, `SchemaConfig`)
-- `StubLlmClient` rule matching, fallback, and defensive copying
-- `OpenAiLlmClient` placeholder
+- `OpenAiLlmClient` construction and unreachable-endpoint handling (see the
+  known gap above)
 - `InMemoryMemoryStore` lifecycle and case isolation
 - `DeterministicFailureProcessorVerticle` routing and handler dispatch
-- `AgentRunnerVerticle` step limits, tool dispatch, and error paths
+- `AgentRunnerVerticle` step limits, tool dispatch, and error paths — driven by
+  inline `LlmClient` lambdas, not by any stub implementation
 - `HttpApiVerticle` routing and request validation
 - `EventSinkVerticle` event bus publishing
 
@@ -451,9 +486,9 @@ factories resolve YAML aliases to concrete classes.
 - YAML config parsing and missing-resource handling
 - Handler behaviour (`LookupEnrichHandler`, `EscalateHandler`)
 - Tool invocation and schema metadata (`RaiseTicketTool`, `PublishEventTool`)
-- `TradeFailureRuleLoader` — all 7 multi-step rules + fallback, including sanctions (5-step), cascade (5-step), and credit event (5-step) chains
-- `LookupTool` — scenario-specific data for all trade ID ranges (sanctions screening, multi-leg structures, credit/netting data)
-- End-to-end smoke tests (deterministic + agent paths)
+- `LookupTool` — scenario-specific fixture data for all trade ID ranges (sanctions screening, multi-leg structures, credit/netting data)
+- `LlmClientFactory` — `openai` param validation, and that `stub` is rejected
+- Smoke test, deterministic path (hermetic); agent path (live tier)
 
 ## Logging
 

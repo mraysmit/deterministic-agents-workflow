@@ -1,0 +1,74 @@
+# ============================================================================
+# Test-only pipeline configuration for the deterministic smoke test.
+#
+# Identical to the shipped pipeline.yaml except that `llm.params.apiKey` is a
+# literal placeholder rather than ${OPENAI_API_KEY}, so LlmClientFactory can
+# construct the client without an environment variable.
+#
+# This is NOT a fake LLM. A real OpenAiLlmClient is built; it is simply never
+# invoked, because the deterministic path ("Missing ISIN" -> lookup-enrich)
+# resolves entirely within DeterministicFailureProcessorVerticle and never
+# reaches the agent. No network call is made.
+#
+# Any test that needs the agent path must use the real config and be gated on
+# OPENAI_API_KEY — see SmokeTest.agent_path_for_unknown_reason.
+# ============================================================================
+
+addresses:
+  inbound: "trade.failures"
+  agent:   "agent.required"
+  events:  "events.out"
+
+http:
+  port: 0
+  route: "/trade/failures"
+  requestTimeoutMs: 10000
+
+schema:
+  caseIdField: "tradeId"
+  allowedFields:
+    - tradeId
+    - reason
+    - altIds
+    - counterparty
+    - instrument
+    - notional
+    - currency
+    - settlementDate
+    - book
+    - venue
+  requiredFields:
+    - tradeId
+    - reason
+
+agent:
+  maxSteps: 8
+  timeoutMs: 10000
+
+handlers:
+  - reason: "Missing ISIN"
+    type: "lookup-enrich"
+    params:
+      identifier: "ISIN"
+
+  - reason: "Invalid Counterparty"
+    type: "escalate"
+
+tools:
+  - type: "publish-event"
+  - type: "raise-ticket"
+  - type: "lookup"
+  - type: "classify"
+  - type: "notify"
+
+llm:
+  type: "openai"
+  params:
+    endpoint: "https://api.openai.com/v1"
+    apiKey: "sk-test-literal-never-used"
+    model: "gpt-4o"
+
+mcp:
+  enabled: true
+  port: 0
+  basePath: ""

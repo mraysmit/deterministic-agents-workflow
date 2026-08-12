@@ -75,13 +75,14 @@ tools:
 
 # ── LLM client ──────────────────────────────────────────────────────────────
 # Supported types:
-#   stub    — rule-based stub for local dev (no network calls)
 #   openai  — calls a real LLM via OpenAI Chat Completions API
 #             with function-calling for structured tool invocation.
 #             Params: endpoint, apiKey (supports ${ENV_VAR} syntax), model
 #
-# To switch to a real LLM, comment out the stub section and uncomment
-# the openai section below:
+# There is no offline or rule-based option. The agent's decisions come from
+# a real model, or startup fails loudly. Note that the deterministic path
+# (see `handlers` above) never consults the LLM at all — that is the part
+# of the pipeline designed to run without one.
 llm:
   type: "openai"
   params:

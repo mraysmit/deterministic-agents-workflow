@@ -10,7 +10,7 @@ class LlmConfigTest {
 
   @Test
   void null_params_defaults_to_empty_map() {
-    var cfg = new LlmConfig("stub", null);
+    var cfg = new LlmConfig("openai", null);
     assertNotNull(cfg.params());
     assertTrue(cfg.params().isEmpty());
   }
@@ -24,7 +24,7 @@ class LlmConfigTest {
 
   @Test
   void type_is_stored() {
-    var cfg = new LlmConfig("stub", Map.of());
-    assertEquals("stub", cfg.type());
+    var cfg = new LlmConfig("openai", Map.of());
+    assertEquals("openai", cfg.type());
   }
 }

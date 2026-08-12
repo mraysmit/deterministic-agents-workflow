@@ -2,7 +2,6 @@ package dev.mars.agent.config;
 
 import dev.mars.agent.llm.LlmClient;
 import dev.mars.agent.llm.OpenAiLlmClient;
-import dev.mars.agent.llm.StubLlmClient;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.Test;
@@ -16,9 +15,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class LlmClientFactoryTest {
 
   @Test
-  void creates_stub_client(Vertx vertx) {
-    LlmClient client = LlmClientFactory.create("stub", Map.of(), vertx);
-    assertInstanceOf(StubLlmClient.class, client);
+  void stub_type_is_no_longer_supported(Vertx vertx) {
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> LlmClientFactory.create("stub", Map.of(), vertx));
+    assertTrue(ex.getMessage().contains("stub"));
   }
 
   @Test

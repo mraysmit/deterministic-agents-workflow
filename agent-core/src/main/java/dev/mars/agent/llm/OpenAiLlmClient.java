@@ -37,7 +37,6 @@ import java.util.logging.Logger;
  * </pre>
  *
  * @see LlmClient
- * @see StubLlmClient
  */
 public class OpenAiLlmClient implements LlmClient {
 
