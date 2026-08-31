@@ -15,13 +15,14 @@ import java.util.logging.Logger;
  *
  * <p>Configuration (Vert.x config):
  * <ul>
- *   <li>{@code agent.timeout.ms} — timeout for agent dispatch (default 10 000)</li>
+ *   <li>{@code agent.timeout.ms} — total agent execution budget (default 60 000)</li>
  * </ul>
  */
 public class DeterministicFailureProcessorVerticle extends AbstractVerticle {
 
   private static final Logger LOG = Logger.getLogger(DeterministicFailureProcessorVerticle.class.getName());
-  private static final long DEFAULT_AGENT_TIMEOUT_MS = 10_000;
+  private static final long DEFAULT_AGENT_TIMEOUT_MS = 60_000;
+  private static final long AGENT_REPLY_GRACE_MS = 1_000;
 
   private final String inboundAddress;
   private final String agentAddress;
@@ -71,7 +72,10 @@ public class DeterministicFailureProcessorVerticle extends AbstractVerticle {
           });
       } else {
         LOG.info("Routing to agent for reason='" + reason + "'");
-        DeliveryOptions opts = new DeliveryOptions().setSendTimeout(agentTimeout);
+        // The runner enforces agentTimeout internally. Give its failure reply a
+        // small delivery grace period so the event-bus timeout does not win the race.
+        DeliveryOptions opts = new DeliveryOptions()
+            .setSendTimeout(agentTimeout + AGENT_REPLY_GRACE_MS);
         vertx.eventBus().request(agentAddress, event, opts)
           .onSuccess(reply -> {
             LOG.info("Agent returned result for trade=" + tradeId + " reason='" + reason + "'");

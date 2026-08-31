@@ -1,5 +1,6 @@
 package dev.mars.agent.ui;
 
+import dev.mars.agent.api.EventPayloadValidator;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.eventbus.DeliveryOptions;
@@ -10,6 +11,7 @@ import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -45,6 +47,7 @@ public class WorkflowUiVerticle extends AbstractVerticle {
   private final int pipelineUiPort;
   private final String llmType;
   private final String llmModel;
+  private final EventPayloadValidator payloadValidator;
 
   /**
    * Active SSE connections keyed by tradeId. Multiple connections for the
@@ -64,13 +67,15 @@ public class WorkflowUiVerticle extends AbstractVerticle {
    * @param llmModel         LLM model name (e.g. "gpt-4o"), may be null
    */
   public WorkflowUiVerticle(String inboundAddress, String eventsAddress, long requestTimeoutMs, int pipelineUiPort,
-                             String llmType, String llmModel) {
+                             String llmType, String llmModel,
+                             Set<String> allowedFields, Set<String> requiredFields) {
     this.inboundAddress = inboundAddress;
     this.eventsAddress = eventsAddress;
     this.requestTimeoutMs = requestTimeoutMs;
     this.pipelineUiPort = pipelineUiPort;
     this.llmType = llmType != null ? llmType : "unknown";
     this.llmModel = llmModel != null ? llmModel : "";
+    this.payloadValidator = new EventPayloadValidator(allowedFields, requiredFields);
   }
 
   @Override
@@ -139,11 +144,13 @@ public class WorkflowUiVerticle extends AbstractVerticle {
     router.post("/workflow/api/run").handler(ctx -> {
       JsonObject payload;
       try {
-        payload = ctx.body().asJsonObject();
+        payload = payloadValidator.validateAndSanitize(ctx.body().asJsonObject());
       } catch (Exception e) {
         ctx.response().setStatusCode(400)
             .putHeader("content-type", "application/json")
-            .end(new JsonObject().put("error", "Invalid JSON").encode());
+            .end(new JsonObject().put("error",
+                e instanceof IllegalArgumentException
+                    ? e.getMessage() : "Invalid JSON").encode());
         return;
       }
 
@@ -248,11 +255,18 @@ public class WorkflowUiVerticle extends AbstractVerticle {
         .requestHandler(router)
         .listen(port)
         .onSuccess(server -> {
+          actualPort = server.actualPort();
           LOG.info("Workflow UI server started on port " + server.actualPort()
               + " — open http://localhost:" + server.actualPort() + "/workflow/");
           startPromise.complete();
         })
         .onFailure(startPromise::fail);
+  }
+
+  private volatile int actualPort = -1;
+
+  int actualPort() {
+    return actualPort;
   }
 
   @Override

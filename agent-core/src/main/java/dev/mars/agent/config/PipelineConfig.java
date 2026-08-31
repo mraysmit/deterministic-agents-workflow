@@ -20,7 +20,7 @@ import java.util.List;
  * http:
  *   port: 8080
  *   route: "/trade/failures"
- *   requestTimeoutMs: 10000
+ *   requestTimeoutMs: 65000
  *
  * schema:
  *   caseIdField: "tradeId"
@@ -29,7 +29,7 @@ import java.util.List;
  *
  * agent:
  *   maxSteps: 5
- *   timeoutMs: 10000
+ *   timeoutMs: 60000
  *
  * handlers:
  *   - reason: "Missing ISIN"

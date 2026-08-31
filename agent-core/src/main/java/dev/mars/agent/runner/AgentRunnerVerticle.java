@@ -2,8 +2,7 @@ package dev.mars.agent.runner;
 
 import dev.mars.agent.llm.LlmClient;
 import dev.mars.agent.memory.MemoryStore;
-import dev.mars.mcp.tool.AgentContext;
-import dev.mars.mcp.tool.Tool;
+import dev.mars.agent.tool.AgentTool;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -64,7 +63,7 @@ import java.util.logging.Logger;
  * can be invoked — anything else is rejected with a clear error.
  *
  * @see LlmClient
- * @see Tool
+ * @see AgentTool
  * @see MemoryStore
  * @see AgentContext
  */
@@ -72,14 +71,16 @@ public class AgentRunnerVerticle extends AbstractVerticle {
 
   private static final Logger LOG = Logger.getLogger(AgentRunnerVerticle.class.getName());
   private static final int DEFAULT_MAX_STEPS = 5;
+  private static final long DEFAULT_EXECUTION_TIMEOUT_MS = 60_000;
 
   private final String listenAddress;
   private final LlmClient llm;
-  private final Map<String, Tool> tools;
+  private final Map<String, AgentTool> tools;
   private final MemoryStore memory;
   private final String caseIdField;
 
   private int maxSteps;
+  private long executionTimeoutMs;
 
   /**
    * Creates a new agent runner verticle.
@@ -92,7 +93,7 @@ public class AgentRunnerVerticle extends AbstractVerticle {
    *                      identifier from incoming events (e.g. {@code "tradeId"})
    */
   public AgentRunnerVerticle(String listenAddress, LlmClient llm,
-                             Map<String, Tool> tools,
+                             Map<String, AgentTool> tools,
                              MemoryStore memory, String caseIdField) {
     this.listenAddress = listenAddress;
     this.llm = llm;
@@ -104,19 +105,35 @@ public class AgentRunnerVerticle extends AbstractVerticle {
   @Override
   public void start(Promise<Void> startPromise) {
     maxSteps = config().getInteger("agent.max.steps", DEFAULT_MAX_STEPS);
+    executionTimeoutMs = config().getLong(
+        "agent.timeout.ms", DEFAULT_EXECUTION_TIMEOUT_MS);
+    if (maxSteps <= 0) {
+      startPromise.fail("agent.max.steps must be > 0");
+      return;
+    }
+    if (executionTimeoutMs <= 0) {
+      startPromise.fail("agent.timeout.ms must be > 0");
+      return;
+    }
 
     LOG.info("AgentRunner starting: address=" + listenAddress
-        + " maxSteps=" + maxSteps + " tools=" + tools.keySet());
+        + " maxSteps=" + maxSteps
+        + " timeout=" + executionTimeoutMs + "ms"
+        + " tools=" + tools.keySet());
 
     vertx.eventBus().consumer(listenAddress, msg -> {
       JsonObject event = (JsonObject) msg.body();
       String caseId = event.getString(caseIdField);
       String corrId = event.getString("correlationId", UUID.randomUUID().toString());
+      long deadlineNanos = System.nanoTime()
+          + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(executionTimeoutMs);
 
       LOG.info("Agent invoked for case=" + caseId + " correlationId=" + corrId);
 
       memory.load(caseId)
-        .compose(state -> runLoop(event, new AgentContext(corrId, caseId, state), 0, new JsonArray()))
+        .compose(state -> runLoop(event,
+            new AgentContext(corrId, caseId, state), 0,
+            new JsonArray(), deadlineNanos))
         .onSuccess(msg::reply)
         .onFailure(err -> {
           LOG.log(Level.SEVERE, "Agent failed for case=" + caseId, err);
@@ -127,7 +144,12 @@ public class AgentRunnerVerticle extends AbstractVerticle {
     startPromise.complete();
   }
 
-  private Future<JsonObject> runLoop(JsonObject event, AgentContext ctx, int step, JsonArray trail) {
+  private Future<JsonObject> runLoop(JsonObject event, AgentContext ctx,
+                                     int step, JsonArray trail,
+                                     long deadlineNanos) {
+    if (deadlineExceeded(deadlineNanos)) {
+      return Future.failedFuture("Agent execution deadline exceeded");
+    }
     if (step >= maxSteps) {
       LOG.warning("Step limit reached for case=" + ctx.caseId());
       return Future.succeededFuture(new JsonObject()
@@ -148,6 +170,9 @@ public class AgentRunnerVerticle extends AbstractVerticle {
     return llm.decideNext(event, ctx.state())
       // Step 2: Execute the tool the LLM selected (validated against allow-list)
       .compose(cmd -> {
+        if (deadlineExceeded(deadlineNanos)) {
+          return Future.failedFuture("Agent execution deadline exceeded before tool invocation");
+        }
         LOG.info("LLM decided: intent=" + cmd.getString("intent")
             + " tool=" + cmd.getString("tool")
             + " stop=" + cmd.getBoolean("stop", true)
@@ -172,7 +197,7 @@ public class AgentRunnerVerticle extends AbstractVerticle {
       .compose(outcome -> {
         if (!outcome.getBoolean("stop", true)) {
           LOG.info("Agent continuing to step " + (step + 1) + " for case=" + ctx.caseId());
-          return runLoop(event, ctx, step + 1, trail);
+          return runLoop(event, ctx, step + 1, trail, deadlineNanos);
         }
         LOG.info("Agent completed for case=" + ctx.caseId() + " after " + (step + 1) + " step(s)");
         return Future.succeededFuture(new JsonObject()
@@ -182,6 +207,10 @@ public class AgentRunnerVerticle extends AbstractVerticle {
           .put("trail", trail)
           .put(caseIdField, ctx.caseId()));
       });
+  }
+
+  private static boolean deadlineExceeded(long deadlineNanos) {
+    return System.nanoTime() - deadlineNanos >= 0;
   }
 
   /**
@@ -201,7 +230,7 @@ public class AgentRunnerVerticle extends AbstractVerticle {
       return Future.failedFuture("Unsupported intent: " + intent);
     }
 
-    Tool tool = tools.get(toolName);
+    AgentTool tool = tools.get(toolName);
     if (tool == null) {
       LOG.warning("Tool not allowlisted: " + toolName
           + " (available: " + tools.keySet() + ") for case=" + ctx.caseId());

@@ -17,8 +17,8 @@
   <dependencies>
     <dependency>
       <groupId>dev.mars</groupId>
-      <artifactId>mcp-server</artifactId>
-      <version>${project.version}</version>
+      <artifactId>mcp-vertx</artifactId>
+      <version>${mcp-vertx.version}</version>
     </dependency>
     <dependency>
       <groupId>io.vertx</groupId>

@@ -1,7 +1,5 @@
 package dev.mars.agent.tool;
-import dev.mars.mcp.tool.Tool;
-
-import dev.mars.mcp.tool.AgentContext;
+import dev.mars.agent.runner.AgentContext;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;

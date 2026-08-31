@@ -12,9 +12,9 @@ public record HttpConfig(
     String route,
     long requestTimeoutMs
 ) {
-  /** Defaults: port 8080, 10-second timeout. */
   public HttpConfig {
     if (port < 0) throw new IllegalArgumentException("port must be >= 0");
     if (route == null || route.isBlank()) throw new IllegalArgumentException("route must not be blank");
+    if (requestTimeoutMs <= 0) throw new IllegalArgumentException("requestTimeoutMs must be > 0");
   }
 }

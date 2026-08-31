@@ -19,7 +19,8 @@ addresses:
 http:
   port: 8080
   route: "/trade/failures"
-  requestTimeoutMs: 10000
+  # Must exceed agent.timeoutMs plus the processor's reply grace period.
+  requestTimeoutMs: 65000
 
 # ── Schema / field validation ────────────────────────────────────────────────
 schema:
@@ -42,7 +43,9 @@ schema:
 # ── Agent settings ───────────────────────────────────────────────────────────
 agent:
   maxSteps: 8
-  timeoutMs: 10000
+  # Total agent execution budget. Tool invocation is rejected after this
+  # deadline, preventing late side effects after callers time out.
+  timeoutMs: 60000
 
 # ── Deterministic handlers (reason → handler type + params) ──────────────────
 # Supported types:
@@ -91,15 +94,16 @@ llm:
     model: "gpt-4o"
 # ── MCP server ───────────────────────────────────────────────────────
 # When enabled, exposes the agent's tools via the Model Context Protocol
-# (HTTP + SSE transport) so external MCP clients (e.g. Claude Desktop,
-# IDEs) can discover and invoke them.
+# through the sibling mcp-vertx server so external MCP clients can
+# discover and invoke them.
 #
 # Endpoints (relative to basePath):
-#   GET  /sse             — SSE connection for JSON-RPC responses
-#   POST /message         — JSON-RPC 2.0 request endpoint
+#   POST /mcp             — stateless Streamable HTTP JSON-RPC endpoint
+#   GET/DELETE /mcp       — 405 Method Not Allowed
 #
 # Supported JSON-RPC methods:
-#   initialize, ping, tools/list, tools/call
+#   initialize, notifications/initialized, server/discover,
+#   tools/list, tools/call
 mcp:
   enabled: true
   port: 3001

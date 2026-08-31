@@ -1,6 +1,6 @@
 package dev.mars.agent.llm;
 
-import dev.mars.mcp.tool.Tool;
+import dev.mars.agent.tool.AgentTool;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -63,7 +63,7 @@ public class OpenAiLlmClient implements LlmClient {
    *                 to the model for function-calling
    */
   public OpenAiLlmClient(Vertx vertx, String endpoint, String apiKey,
-                          String model, Collection<Tool> tools) {
+                          String model, Collection<AgentTool> tools) {
     this.endpoint = endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint;
     this.apiKey = apiKey;
     this.model = model;
@@ -196,7 +196,8 @@ public class OpenAiLlmClient implements LlmClient {
       }
 
       // Determine if this should be the final step.
-      // Ticket-raising and notification tools typically conclude the investigation.
+      // Data gathering and notifications continue the investigation. A ticket
+      // or terminal domain event concludes it.
       boolean stop = isTerminalTool(toolName);
 
       LOG.info("LLM decided: tool=" + toolName + " stop=" + stop
@@ -227,13 +228,13 @@ public class OpenAiLlmClient implements LlmClient {
 
   /**
    * Determines whether calling this tool should be the final step.
-   * Lookup and classify tools gather info → continue. Ticket, notify,
-   * and publish tools take action → stop.
+   * Lookup, classify, and notification tools continue. Tickets and terminal
+   * domain events stop the loop.
    */
   private boolean isTerminalTool(String toolName) {
     return switch (toolName) {
-      case "data.lookup", "case.classify" -> false;
-      case "case.raiseTicket", "comms.notify", "events.publish" -> true;
+      case "data.lookup", "case.classify", "comms.notify" -> false;
+      case "case.raiseTicket", "events.publish" -> true;
       default -> true;
     };
   }
@@ -241,13 +242,14 @@ public class OpenAiLlmClient implements LlmClient {
   // ── Tool definitions for function-calling ─────────────────────────
 
   /**
-   * Converts the agent's {@link Tool} list into the OpenAI
+   * Converts the agent's {@link AgentTool} list into the OpenAI
    * {@code tools} array format for function-calling.
    * Tool names containing dots are sanitized to underscores (OpenAI requires ^[a-zA-Z0-9_-]+$).
    */
-  private static JsonArray buildToolsDef(Collection<Tool> tools, Map<String, String> reverseMap) {
+  private static JsonArray buildToolsDef(Collection<AgentTool> tools,
+                                         Map<String, String> reverseMap) {
     JsonArray arr = new JsonArray();
-    for (Tool tool : tools) {
+    for (AgentTool tool : tools) {
       String apiName = tool.name().replace('.', '_');
       reverseMap.put(apiName, tool.name());
       arr.add(new JsonObject()
@@ -262,7 +264,7 @@ public class OpenAiLlmClient implements LlmClient {
 
   // ── System prompt ─────────────────────────────────────────────────
 
-  private static String buildSystemPrompt(Collection<Tool> tools) {
+  private static String buildSystemPrompt(Collection<AgentTool> tools) {
     StringBuilder sb = new StringBuilder();
     sb.append("""
         You are an expert trade-failure resolution agent at a financial institution.
@@ -274,7 +276,7 @@ public class OpenAiLlmClient implements LlmClient {
 
         ## Tool instructions
         """);
-    for (Tool tool : tools) {
+    for (AgentTool tool : tools) {
       String instr = tool.instructions();
       if (instr != null && !instr.isBlank()) {
         sb.append(instr).append("\n");

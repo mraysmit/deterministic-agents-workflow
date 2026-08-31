@@ -2,7 +2,7 @@ package dev.mars.agent.config;
 
 import dev.mars.agent.llm.LlmClient;
 import dev.mars.agent.llm.OpenAiLlmClient;
-import dev.mars.mcp.tool.Tool;
+import dev.mars.agent.tool.AgentTool;
 import io.vertx.core.Vertx;
 
 import java.util.Collection;
@@ -51,7 +51,7 @@ public final class LlmClientFactory {
    *         params are missing
    */
   public static LlmClient create(String type, Map<String, String> params,
-                                  Vertx vertx, Collection<Tool> tools) {
+                                  Vertx vertx, Collection<AgentTool> tools) {
     LOG.info("Creating LLM client: type=" + type);
     return switch (type) {
       case "openai" -> {

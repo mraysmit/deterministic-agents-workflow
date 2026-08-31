@@ -2,12 +2,12 @@ package dev.mars.agent.runner;
 
 import dev.mars.agent.llm.LlmClient;
 import dev.mars.agent.memory.InMemoryMemoryStore;
-import dev.mars.mcp.tool.AgentContext;
-import dev.mars.mcp.tool.Tool;
-import dev.mars.mcp.tool.ToolRegistry;
+import dev.mars.agent.tool.AgentTool;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -15,14 +15,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(VertxExtension.class)
 class AgentRunnerVerticleTest {
 
-  private Tool stubTool(String name) {
-    return new Tool() {
+  private AgentTool stubTool(String name) {
+    return new AgentTool() {
       @Override
       public String name() { return name; }
       @Override
@@ -34,6 +37,11 @@ class AgentRunnerVerticleTest {
     };
   }
 
+  private Map<String, AgentTool> registry(AgentTool... tools) {
+    return Stream.of(tools).collect(
+        Collectors.toUnmodifiableMap(AgentTool::name, tool -> tool));
+  }
+
   @Test
   void successful_single_step_invocation(Vertx vertx, VertxTestContext ctx) {
     LlmClient llm = (event, state) -> Future.succeededFuture(new JsonObject()
@@ -42,7 +50,7 @@ class AgentRunnerVerticleTest {
         .put("args", new JsonObject())
         .put("stop", true));
 
-    Map<String, Tool> tools = ToolRegistry.of(stubTool("test.tool"));
+    Map<String, AgentTool> tools = registry(stubTool("test.tool"));
     var verticle = new AgentRunnerVerticle(
         "test.agent.run", llm, tools, new InMemoryMemoryStore(), "tradeId");
 
@@ -68,7 +76,7 @@ class AgentRunnerVerticleTest {
         .put("args", new JsonObject())
         .put("stop", false));
 
-    Map<String, Tool> tools = ToolRegistry.of(stubTool("test.tool"));
+    Map<String, AgentTool> tools = registry(stubTool("test.tool"));
     var verticle = new AgentRunnerVerticle(
         "test.agent.limit", llm, tools, new InMemoryMemoryStore(), "tradeId");
 
@@ -93,7 +101,7 @@ class AgentRunnerVerticleTest {
         .put("tool", "test.tool")
         .put("args", new JsonObject()));
 
-    Map<String, Tool> tools = ToolRegistry.of(stubTool("test.tool"));
+    Map<String, AgentTool> tools = registry(stubTool("test.tool"));
     var verticle = new AgentRunnerVerticle(
         "test.agent.intent", llm, tools, new InMemoryMemoryStore(), "tradeId");
 
@@ -114,7 +122,7 @@ class AgentRunnerVerticleTest {
         .put("tool", "nonexistent.tool")
         .put("args", new JsonObject()));
 
-    Map<String, Tool> tools = ToolRegistry.of(stubTool("test.tool"));
+    Map<String, AgentTool> tools = registry(stubTool("test.tool"));
     var verticle = new AgentRunnerVerticle(
         "test.agent.unknown", llm, tools, new InMemoryMemoryStore(), "tradeId");
 
@@ -141,7 +149,7 @@ class AgentRunnerVerticleTest {
           .put("stop", stop));
     };
 
-    Map<String, Tool> tools = ToolRegistry.of(stubTool("test.tool"));
+    Map<String, AgentTool> tools = registry(stubTool("test.tool"));
     var verticle = new AgentRunnerVerticle(
         "test.agent.multi", llm, tools, new InMemoryMemoryStore(), "tradeId");
 
@@ -164,7 +172,7 @@ class AgentRunnerVerticleTest {
         .put("args", new JsonObject())
         .put("stop", true));
 
-    Map<String, Tool> tools = ToolRegistry.of(stubTool("test.tool"));
+    Map<String, AgentTool> tools = registry(stubTool("test.tool"));
     var verticle = new AgentRunnerVerticle(
         "test.agent.custom", llm, tools, new InMemoryMemoryStore(), "orderId");
 
@@ -176,5 +184,48 @@ class AgentRunnerVerticleTest {
       assertEquals("O-1", body.getString("orderId"));
       ctx.completeNow();
     }).onFailure(ctx::failNow);
+  }
+
+  @Test
+  void deadline_prevents_late_tool_side_effects(Vertx vertx, VertxTestContext ctx) {
+    AtomicInteger invocations = new AtomicInteger();
+    AgentTool tool = new AgentTool() {
+      @Override
+      public String name() { return "test.tool"; }
+
+      @Override
+      public Future<JsonObject> invoke(JsonObject args, AgentContext context) {
+        invocations.incrementAndGet();
+        return Future.succeededFuture(new JsonObject().put("status", "done"));
+      }
+    };
+
+    LlmClient delayedLlm = (event, state) -> {
+      Promise<JsonObject> decision = Promise.promise();
+      vertx.setTimer(50, ignored -> decision.complete(new JsonObject()
+          .put("intent", "CALL_TOOL")
+          .put("tool", "test.tool")
+          .put("args", new JsonObject())
+          .put("stop", true)));
+      return decision.future();
+    };
+
+    var verticle = new AgentRunnerVerticle(
+        "test.agent.deadline", delayedLlm, registry(tool),
+        new InMemoryMemoryStore(), "tradeId");
+    var deployOptions = new DeploymentOptions().setConfig(new JsonObject()
+        .put("agent.timeout.ms", 10));
+    var requestOptions = new DeliveryOptions().setSendTimeout(500);
+
+    vertx.deployVerticle(verticle, deployOptions).compose(id ->
+      vertx.eventBus().request("test.agent.deadline",
+          new JsonObject().put("tradeId", "T-timeout").put("reason", "test"),
+          requestOptions)
+    ).onSuccess(reply -> ctx.failNow("Expected deadline failure"))
+    .onFailure(err -> {
+      assertTrue(err.getMessage().contains("deadline exceeded"));
+      assertEquals(0, invocations.get(), "tool must not run after the deadline");
+      ctx.completeNow();
+    });
   }
 }

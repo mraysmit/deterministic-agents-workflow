@@ -22,7 +22,7 @@ addresses:
 http:
   port: 0
   route: "/trade/failures"
-  requestTimeoutMs: 10000
+  requestTimeoutMs: 65000
 
 schema:
   caseIdField: "tradeId"
@@ -43,7 +43,7 @@ schema:
 
 agent:
   maxSteps: 8
-  timeoutMs: 10000
+  timeoutMs: 60000
 
 handlers:
   - reason: "Missing ISIN"

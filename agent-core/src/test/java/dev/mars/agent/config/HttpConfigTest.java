@@ -37,4 +37,10 @@ class HttpConfigTest {
     assertThrows(IllegalArgumentException.class,
         () -> new HttpConfig(8080, "  ", 1000));
   }
+
+  @Test
+  void non_positive_timeout_throws() {
+    assertThrows(IllegalArgumentException.class,
+        () -> new HttpConfig(8080, "/test", 0));
+  }
 }

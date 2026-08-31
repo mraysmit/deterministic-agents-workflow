@@ -5,8 +5,8 @@ package dev.mars.agent.config;
  *
  * <p>When {@code enabled} is {@code true}, the pipeline deploys an
  * {@link dev.mars.mcp.McpServerVerticle McpServerVerticle}
- * that exposes the agent's tools via the MCP protocol (HTTP + SSE
- * transport).
+ * from the sibling {@code mcp-vertx} project. It exposes the agent's tools
+ * through stateless Streamable HTTP.
  *
  * <h2>Example YAML</h2>
  * <pre>

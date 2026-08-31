@@ -1,50 +1,88 @@
-# deterministic-agents-workflow — Vert.x 5 Agent + MCP Server (Java)
+# deterministic-agents-workflow — Vert.x 5 Agent + mcp-vertx (Java)
 
-A **multi-module Vert.x 5 project** demonstrating the hybrid deterministic-workflow / LLM-agent pattern with a built-in [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server.
+A **multi-module Vert.x 5 project** demonstrating the hybrid deterministic-workflow / LLM-agent pattern with the sibling [mcp-vertx](../mcp-vertx) [Model Context Protocol](https://modelcontextprotocol.io/) server embedded at runtime.
 
 - **Deterministic processor** handles known failures via pluggable handlers.
 - **Agent boundary** only triggers when the failure is unknown/ambiguous.
 - The agent's decisions come from a **real LLM** via function-calling. There is
   no offline or rule-based fallback — see [A note on stubs](#a-note-on-stubs).
 - **Tools are self-describing** with JSON Schema metadata aligned with MCP.
-- **Built-in MCP server** exposes tools via Streamable HTTP (2025-03-26) and legacy HTTP+SSE (2024-11-05) transports.
+- **mcp-vertx integration** exposes the same tools through stateless Streamable HTTP with schema validation, bounded concurrency, deadlines, and secure loopback defaults.
 
 ## Modules
 
 | Module | ArtifactId | Purpose |
 |---|---|---|
-| `mcp-server` | `mcp-server` | Standalone MCP server verticle — Streamable HTTP + legacy SSE transports, `Tool` / `ToolRegistry` interfaces. Zero agent coupling. |
+| `../mcp-vertx` | `mcp-vertx` | Sibling standalone MCP server, included in the Maven reactor and embedded by `agent-app`. |
 | `agent-core` | `agent-core` | Reusable agent infrastructure — LLM interfaces, memory, agent runner, deterministic processor, config records, HTTP API verticle. |
 | `agent-app` | `agent-app` | Trade-failure domain logic — handlers, tools, factories, YAML-driven bootstrap (`MainVerticle`). Produces the fat JAR. |
 
 ```
 deterministic-agents-workflow/
-├── mcp-server/         # dev.mars.mcp
 ├── agent-core/         # dev.mars.agent  (core abstractions)
 ├── agent-app/          # dev.mars.agent  (domain + bootstrap)
-└── pom.xml             # parent POM (dev.mars:deterministic-agents-workflow)
+└── pom.xml             # aggregates ../mcp-vertx, agent-core, and agent-app
+
+mcp-vertx/              # sibling dev.mars:mcp-vertx project
 ```
 
 ## Requirements
-- Java 21+
+- Java 25
 - Maven 3.9+
+- The `mcp-vertx` repository checked out beside this repository, at
+  `../mcp-vertx` (the root Maven reactor includes it directly)
 
 ## Build + Run
+
+### Windows PowerShell (recommended for this project)
+
+Create a `.env` file in the project root:
+
+```dotenv
+OPENAI_API_KEY=sk-...
+```
+
+Then use the supplied launcher:
+
+```powershell
+.\scripts\run.ps1
+```
+
+The launcher:
+
+- loads variables from the root `.env` file into the current application process;
+- selects the local Java 25 installation when it is available;
+- frees ports 8080, 8081, 8082, and 3001;
+- builds the modules with tests skipped; and
+- starts `dev.mars.agent.Main` from the `agent-app` module.
+
+To restart without rebuilding, or to stop all four services:
+
+```powershell
+.\scripts\run.ps1 -SkipBuild
+.\scripts\shutdown.ps1
+```
+
+The `.env` file is ignored by Git and must not be committed.
+
+### Manual / Unix-like shell
+
 ```bash
 mvn -q clean test
 mvn -q package -DskipTests
+export OPENAI_API_KEY=sk-...
 java -jar agent-app/target/agent-app-0.1.0-SNAPSHOT-fat.jar
 ```
 
-Running the application requires an API key — there is no offline mode:
+Running the application requires an API key; there is no offline or stub LLM
+mode. The default `pipeline.yaml` resolves its `llm.params.apiKey` value from
+the `OPENAI_API_KEY` environment variable.
 
-```bash
-export OPENAI_API_KEY=sk-...
-```
-
-`mvn test` does **not** need one. The suite is split into two tiers: hermetic
-tests run always, and the tests that need a live model skip themselves unless
-`OPENAI_API_KEY` is set. See [Test Coverage](#test-coverage).
+`mvn test` does **not** need a key when `OPENAI_API_KEY` is absent. The suite is
+split into two tiers: hermetic tests always run, while the live model test skips
+itself when the variable is absent. If `OPENAI_API_KEY` is already present—in
+the shell environment or loaded by another launcher—the live test runs and can
+make a billable network request. See [Test Coverage](#test-coverage).
 
 - Agent HTTP API: **http://localhost:8080** (override with `http.port` in `pipeline.yaml`)
 - MCP server: **http://localhost:3001** (override with `mcp.port` in `pipeline.yaml`)
@@ -129,39 +167,34 @@ curl -s -X POST http://localhost:8080/trade/failures \
   -d '{"tradeId":"T-700","reason":"Regulatory T+1 deadline at risk"}' | jq
 ```
 
-### 9) MCP — Streamable HTTP transport (2025-03-26)
+### 9) MCP — mcp-vertx Streamable HTTP (2026-07-28)
 
 ```bash
-# Initialize a session
+# Discover server capabilities. Every request is stateless and carries
+# protocol and client metadata.
 curl -s -X POST http://localhost:3001/mcp \
   -H 'content-type: application/json' \
-  -H 'Accept: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: server/discover' \
+  -d '{"jsonrpc":"2.0","id":"discover-1","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"curl","version":"1.0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
 
-# List tools (include Mcp-Session-Id from the initialize response)
+# List tools
 curl -s -X POST http://localhost:3001/mcp \
   -H 'content-type: application/json' \
-  -H 'Accept: application/json' \
-  -H 'Mcp-Session-Id: <sessionId>' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: tools/list' \
+  -d '{"jsonrpc":"2.0","id":"tools-1","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"curl","version":"1.0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
 
 # Invoke a tool
 curl -s -X POST http://localhost:3001/mcp \
   -H 'content-type: application/json' \
-  -H 'Accept: application/json' \
-  -H 'Mcp-Session-Id: <sessionId>' \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"case.raiseTicket","arguments":{"tradeId":"T-300","category":"ReferenceData","summary":"MCP test"}}}'
-```
-
-### 10) MCP — Legacy SSE transport (2024-11-05)
-```bash
-# Open SSE connection and note the sessionId from the endpoint event
-curl -N http://localhost:3001/sse &
-
-# Send tools/list (replace <sessionId> with value from endpoint event)
-curl -s -X POST "http://localhost:3001/message?sessionId=<sessionId>" \
-  -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: tools/call' \
+  -H 'Mcp-Name: case.raiseTicket' \
+  -d '{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"curl","version":"1.0"},"io.modelcontextprotocol/clientCapabilities":{}},"name":"case.raiseTicket","arguments":{"tradeId":"T-300","category":"ReferenceData","summary":"MCP test"}}}'
 ```
 
 ---
@@ -250,37 +283,34 @@ for the decision. It is chain-of-thought from the LLM, not canned text:
 
 ## MCP Server
 
-The `mcp-server` module provides `McpServerVerticle` — a standalone MCP server
-that exposes the agent's tools via the [Model Context Protocol](https://modelcontextprotocol.io/).
+The sibling `mcp-vertx` project provides `McpServerVerticle`. This application
+depends on that artifact and embeds the verticle with the same allow-listed
+tool instances used by the agent runner. There is no MCP server implementation
+in this repository.
 
 ### Transports
 
-| Transport | Spec Version | Endpoints |
+| Transport | Protocol version | Endpoints |
 |---|---|---|
-| **Streamable HTTP** | 2025-03-26 | `POST /mcp`, `GET /mcp`, `DELETE /mcp` |
-| **Legacy HTTP+SSE** | 2024-11-05 | `GET /sse`, `POST /message?sessionId=<id>` |
+| **Stateless Streamable HTTP** | extended `2026-07-28`; standard initialization compatible with `2025-11-25` | `POST /mcp` |
 
-### Streamable HTTP (2025-03-26)
+### Stateless Streamable HTTP
 
-The primary transport. A single `/mcp` endpoint handles all interactions:
-- **POST** — JSON-RPC requests/notifications. Responds with `application/json` or `text/event-stream` based on the client's `Accept` header. Supports JSON-RPC batch requests.
-- **GET** — Opens an SSE stream for server-initiated messages.
-- **DELETE** — Terminates the session.
+Every request carries its protocol version, client identity, capabilities, MCP
+method, and JSON-RPC payload. `GET /mcp` and `DELETE /mcp` return `405 Method
+Not Allowed`; legacy session and SSE endpoints are intentionally absent.
 
-Session management uses the `Mcp-Session-Id` header — assigned after `initialize`, required on all subsequent requests.
-
-### Legacy HTTP+SSE (2024-11-05)
-
-Backwards-compatible transport for older MCP clients:
-- **GET `/sse`** — Opens an SSE connection; server sends an `endpoint` event with the URL for posting messages.
-- **POST `/message?sessionId=<id>`** — Receives JSON-RPC requests; responses are delivered via the SSE stream.
+The transport validates JSON Schema inputs and outputs, bounds request and
+response sizes, limits global and per-tool concurrency, and supplies tool
+deadlines and cooperative cancellation through `ToolContext`.
 
 ### Supported JSON-RPC Methods
 
 | Method | Description |
 |---|---|
 | `initialize` | Capability negotiation — returns protocol version, server info, and capabilities |
-| `ping` | Health check — returns empty result |
+| `notifications/initialized` | Standard initialization completion notification |
+| `server/discover` | Extended stateless capability discovery |
 | `tools/list` | Returns all registered tools with name, description, and `inputSchema` |
 | `tools/call` | Invokes a tool by name with the supplied arguments |
 
@@ -293,51 +323,34 @@ mcp:
   basePath: ""     # URL prefix for MCP endpoints
 ```
 
-### Connecting from Claude Desktop
-
-Add this to your Claude Desktop MCP settings:
-```json
-{
-  "mcpServers": {
-    "deterministic-agents-workflow": {
-      "transport": "sse",
-      "url": "http://localhost:3001/sse"
-    }
-  }
-}
-```
-
----
-
 ## How This Demonstrates MCP
 
-This project implements MCP directly — `McpServerVerticle` exposes tools via
-standard MCP transports with JSON-RPC 2.0. The core abstractions map onto MCP
-concepts:
+This project integrates the standalone `mcp-vertx` implementation and adapts
+its tool SPI to the agent loop. The core abstractions map onto MCP concepts:
 
 ### MCP Concept Mapping
 
 | MCP Concept | This Project | Where |
 |---|---|---|
-| **Tool** — a callable capability with a name, description, and input schema | `Tool` interface with `name()`, `description()`, `schema()` | `mcp-server` — `tool/Tool.java` |
-| **`tools/list`** — server advertises available tools with their schemas | `ToolRegistry` holds all registered tools; each tool self-describes via `schema()` | `mcp-server` — `tool/ToolRegistry.java` |
-| **`tools/call`** — client invokes a tool by name with JSON arguments | `McpServerVerticle` dispatches `{tool, args}` to the matching `Tool` | `mcp-server` — `McpServerVerticle.java` |
-| **`inputSchema`** — JSON Schema describing a tool's parameters | `Tool.schema()` returns JSON Schema 2020-12 compatible `JsonObject` | `mcp-server` — `tool/Tool.java` |
-| **Tool allow-listing** — security boundary controlling which tools an agent can use | `ToolRegistry` acts as the allow-list; unknown tools are rejected | `mcp-server` — `tool/ToolRegistry.java` |
+| **Tool** — a callable capability with a name, description, and input schema | `AgentTool` extends the `mcp-vertx` `Tool` SPI and adds agent instructions/context | `agent-core` — `tool/AgentTool.java` |
+| **`tools/list`** — server advertises available tools with their schemas | `mcp-vertx` `ToolRegistry` validates and holds the shared tool instances | sibling `mcp-vertx` project |
+| **`tools/call`** — client invokes a tool by name with JSON arguments | `mcp-vertx` validates the request and dispatches through `ToolContext` | sibling `mcp-vertx` project |
+| **`inputSchema`** — JSON Schema describing a tool's parameters | `AgentTool.schema()` is compiled and enforced by `mcp-vertx` | both projects |
+| **Tool allow-listing** — security boundary controlling which tools an agent can use | One registry supplies both the MCP server and agent runner | `MainVerticle` |
 | **LLM function-calling** — LLM decides which tool to call and with what arguments | `LlmClient.decideNext()` returns `{intent, tool, args}` commands | `agent-core` — `llm/LlmClient.java` |
 | **Agent loop** — iterative tool calls until the task is complete | `AgentRunnerVerticle.runLoop()` loops until `stop: true` or step limit | `agent-core` — `runner/AgentRunnerVerticle.java` |
 
 ### What Each Tool Exposes (MCP-Ready)
 
-Every `Tool` implementation provides three pieces of metadata that an MCP
+Every `AgentTool` implementation provides three pieces of metadata that an MCP
 server advertises in a `tools/list` response:
 
 ```java
-public interface Tool {
+public interface AgentTool extends Tool {
     String name();             // MCP tool name
     String description();      // MCP tool description
     JsonObject schema();       // MCP inputSchema (JSON Schema)
-    Future<JsonObject> invoke(JsonObject args, AgentContext ctx);  // MCP tools/call
+    Future<JsonObject> invoke(JsonObject args, AgentContext ctx);  // agent path
 }
 ```
 
@@ -405,8 +418,9 @@ MCP-compatible function-calling requires no changes to the tool layer.
    JSON-RPC requests. This lets external MCP tools sit alongside in-process
    tools transparently.
 
-2. ~~**Expose tools as an MCP server**~~ — ✅ Done. `McpServerVerticle`
-   serves `tools/list` and `tools/call` over Streamable HTTP and legacy SSE.
+2. ~~**Expose tools as an MCP server**~~ — ✅ Done. The sibling `mcp-vertx`
+   implementation serves `server/discover`, `tools/list`, and `tools/call`
+   over stateless Streamable HTTP.
 
 3. ~~**Replace `StubLlmClient`**~~ — ✅ Done. `OpenAiLlmClient`
    (`llm/OpenAiLlmClient.java`) is fully implemented: it sends each tool's
@@ -420,9 +434,9 @@ MCP-compatible function-calling requires no changes to the tool layer.
 
 | Component | Module | Purpose |
 |---|---|---|
-| `McpServerVerticle` | `mcp-server` | MCP server — Streamable HTTP + legacy SSE transports |
-| `Tool` interface | `mcp-server` | Self-describing tools with `name()`, `description()`, `schema()` |
-| `ToolRegistry` | `mcp-server` | Tool registration and allow-listing |
+| `McpServerVerticle` | sibling `mcp-vertx` | Current MCP transport, validation, security, deadlines, and concurrency controls |
+| `AgentTool` adapter | `agent-core` | Bridges agent context/instructions to the `mcp-vertx` `Tool` SPI |
+| `ToolRegistry` | sibling `mcp-vertx` | Tool registration, schema compilation, and allow-listing |
 | `DeterministicFailureProcessorVerticle` | `agent-core` | Normal service — fast, predictable, strategy-pattern handlers |
 | `AgentRunnerVerticle` | `agent-core` | Step-limited agent runner + tool dispatch (MCP client pattern) |
 | `HttpApiVerticle` | `agent-core` | HTTP ingress with schema validation |
@@ -445,7 +459,8 @@ factories resolve YAML aliases to concrete classes.
 
 ## Test Coverage
 
-**147 tests across three modules**, split into two tiers.
+The root reactor runs the standalone `mcp-vertx` suite plus the workflow's
+`agent-core` and `agent-app` suites, split into two tiers.
 
 **Hermetic tier — runs on every build.** No API key, no network, no cost.
 Covers everything except the model's own decisions.
@@ -457,23 +472,16 @@ deliberately structural — that the agent path routed, terminated, and produced
 a result — never that a specific tool was chosen or specific wording returned,
 because a real model does not repeat itself.
 
-> **Known gap.** `OpenAiLlmClient`'s request construction, `tool_calls`
-> parsing, and tool-name sanitisation round-trip are still only covered by a
-> constructor check and an unreachable-endpoint check. A hermetic test against
-> a canned HTTP response on localhost would close this without needing a key.
-> Faking the *transport* to test the parser is legitimate; faking the *model's
-> decisions* is what this project just removed.
-
 Coverage by module:
 
-**mcp-server**
-- `ToolRegistry` immutability, lookup, and registration
-- `McpServerVerticle` — Streamable HTTP transport, legacy SSE transport, JSON-RPC dispatch, session management, batch requests, tool invocation, and error handling
+**mcp-vertx**
+- Protocol, schema, security, OAuth, concurrency, cancellation, deadline,
+  packaging, and optional A2A behavior from the standalone sibling project
 
 **agent-core**
 - Config record validation and defensive copying (`HttpConfig`, `McpConfig`, `LlmConfig`, `HandlerConfig`, `SchemaConfig`)
-- `OpenAiLlmClient` construction and unreachable-endpoint handling (see the
-  known gap above)
+- `OpenAiLlmClient` request/response mapping through a local protocol fixture,
+  construction, and unreachable-endpoint handling
 - `InMemoryMemoryStore` lifecycle and case isolation
 - `DeterministicFailureProcessorVerticle` routing and handler dispatch
 - `AgentRunnerVerticle` step limits, tool dispatch, and error paths — driven by

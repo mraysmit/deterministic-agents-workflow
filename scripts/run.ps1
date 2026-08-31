@@ -44,7 +44,7 @@ if (Test-Path $envFile) {
 
 # ── Verify required env vars ────────────────────────────────────
 if (-not $env:OPENAI_API_KEY) {
-    Write-Warning "OPENAI_API_KEY is not set — OK if using stub LLM"
+    throw "OPENAI_API_KEY is not set; the configured OpenAI client has no offline/stub mode"
 } else {
     Write-Host "OPENAI_API_KEY is set (length: $($env:OPENAI_API_KEY.Length))" -ForegroundColor Green
 }

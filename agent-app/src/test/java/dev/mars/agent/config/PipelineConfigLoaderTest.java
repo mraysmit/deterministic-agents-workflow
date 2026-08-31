@@ -20,7 +20,7 @@ class PipelineConfigLoaderTest {
     PipelineConfig cfg = PipelineConfigLoader.load("pipeline.yaml");
     assertEquals(8080, cfg.http().port());
     assertEquals("/trade/failures", cfg.http().route());
-    assertEquals(10_000, cfg.http().requestTimeoutMs());
+    assertEquals(65_000, cfg.http().requestTimeoutMs());
   }
 
   @Test
@@ -37,7 +37,7 @@ class PipelineConfigLoaderTest {
   void yaml_agent_section_is_parsed() {
     PipelineConfig cfg = PipelineConfigLoader.load("pipeline.yaml");
     assertEquals(8, cfg.agent().maxSteps());
-    assertEquals(10_000, cfg.agent().timeoutMs());
+    assertEquals(60_000, cfg.agent().timeoutMs());
   }
 
   @Test

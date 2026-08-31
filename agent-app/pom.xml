@@ -24,6 +24,11 @@
       <artifactId>agent-core</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>dev.mars</groupId>
+      <artifactId>mcp-vertx</artifactId>
+      <version>${mcp-vertx.version}</version>
+    </dependency>
 
     <dependency>
       <groupId>io.vertx</groupId>
@@ -59,6 +64,18 @@
             <goals><goal>shade</goal></goals>
             <configuration>
               <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <!-- mcp-vertx's primary artifact is itself executable/shaded.
+                     Keep its project classes and logging configuration here;
+                     Maven supplies each transitive library exactly once. -->
+                <filter>
+                  <artifact>dev.mars:mcp-vertx</artifact>
+                  <includes>
+                    <include>dev/mars/**</include>
+                    <include>logback.xml</include>
+                  </includes>
+                </filter>
+              </filters>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>${main.class}</mainClass>

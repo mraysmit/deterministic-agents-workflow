@@ -10,7 +10,7 @@
   <name>deterministic-agents-workflow</name>
 
   <modules>
-    <module>mcp-server</module>
+    <module>../mcp-vertx</module>
     <module>agent-core</module>
     <module>agent-app</module>
   </modules>
@@ -18,7 +18,9 @@
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <vertx.version>5.0.8</vertx.version>
+    <vertx.version>5.1.6</vertx.version>
+    <mcp-vertx.version>0.3.0-SNAPSHOT</mcp-vertx.version>
+    <slf4j.version>2.0.18</slf4j.version>
     <junit.jupiter.version>5.10.2</junit.jupiter.version>
     <jackson.version>2.17.0</jackson.version>
   </properties>
@@ -31,6 +33,11 @@
         <version>${vertx.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>

@@ -9,7 +9,6 @@ import io.vertx.ext.web.handler.BodyHandler;
 
 import java.util.Set;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 /**
  * Generic HTTP ingress verticle that exposes a REST API for submitting
@@ -35,7 +34,7 @@ import java.util.stream.Collectors;
  *   <li>{@code http.port} — TCP port to listen on (default {@code 8080},
  *       use {@code 0} for a random port in tests).</li>
  *   <li>{@code request.timeout.ms} — event-bus request timeout in
- *       milliseconds (default {@code 10 000}).</li>
+ *       milliseconds (default {@code 65 000}).</li>
  * </ul>
  *
  * <h2>Input sanitisation</h2>
@@ -47,12 +46,13 @@ import java.util.stream.Collectors;
 public class HttpApiVerticle extends AbstractVerticle {
 
   private static final Logger LOG = Logger.getLogger(HttpApiVerticle.class.getName());
-  private static final long DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+  private static final long DEFAULT_REQUEST_TIMEOUT_MS = 65_000;
 
   private final String routePath;
   private final String targetAddress;
   private final Set<String> allowedFields;
   private final Set<String> requiredFields;
+  private final EventPayloadValidator payloadValidator;
 
   /**
    * Creates a new HTTP API verticle with the given routing and validation
@@ -78,15 +78,7 @@ public class HttpApiVerticle extends AbstractVerticle {
     this.targetAddress = targetAddress;
     this.allowedFields = Set.copyOf(allowedFields);
     this.requiredFields = Set.copyOf(requiredFields);
-
-    // Fail fast if required fields are not a subset of allowed fields
-    Set<String> notAllowed = requiredFields.stream()
-      .filter(f -> !allowedFields.contains(f))
-      .collect(Collectors.toSet());
-    if (!notAllowed.isEmpty()) {
-      throw new IllegalArgumentException(
-        "Required fields not in allowedFields: " + notAllowed);
-    }
+    this.payloadValidator = new EventPayloadValidator(allowedFields, requiredFields);
   }
 
   @Override
@@ -107,37 +99,22 @@ public class HttpApiVerticle extends AbstractVerticle {
       .end(new JsonObject().put("status", "UP").encode()));
 
     router.post(routePath).handler(ctx -> {
-      JsonObject event = ctx.body().asJsonObject();
-      if (event == null) {
-        LOG.warning("Rejected request on " + routePath + ": null JSON body");
+      JsonObject event;
+      JsonObject sanitized;
+      try {
+        event = ctx.body().asJsonObject();
+        sanitized = payloadValidator.validateAndSanitize(event);
+      } catch (Exception err) {
+        String message = err instanceof IllegalArgumentException
+            ? err.getMessage() : "Expected JSON body";
+        LOG.warning("Rejected request on " + routePath + ": " + message);
         ctx.response().setStatusCode(400)
           .putHeader("content-type", "application/json")
-          .end(new JsonObject().put("error", "Expected JSON body").encode());
+          .end(new JsonObject().put("error", message).encode());
         return;
       }
 
       LOG.info("Received POST " + routePath + ": " + event.encode());
-
-      // Check all required fields are present
-      String missing = requiredFields.stream()
-        .filter(f -> event.getString(f) == null)
-        .collect(Collectors.joining(", "));
-      if (!missing.isEmpty()) {
-        LOG.warning("Rejected request on " + routePath + ": missing fields=[" + missing + "]");
-        ctx.response().setStatusCode(400)
-          .putHeader("content-type", "application/json")
-          .end(new JsonObject()
-            .put("error", "Missing required field(s): " + missing).encode());
-        return;
-      }
-
-      // Whitelist known fields to prevent unexpected data reaching the agent/LLM
-      JsonObject sanitized = new JsonObject();
-      for (String field : allowedFields) {
-        if (event.containsKey(field)) {
-          sanitized.put(field, event.getValue(field));
-        }
-      }
 
       LOG.fine("Dispatching sanitised payload to " + targetAddress + ": " + sanitized.encode());
 

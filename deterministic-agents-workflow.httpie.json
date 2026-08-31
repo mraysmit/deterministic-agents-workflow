@@ -20,7 +20,7 @@
         "variables": [
           { "id": "var_agentBase",    "name": "agentBase",    "value": "http://localhost:8080", "isSecret": false },
           { "id": "var_mcpBase",      "name": "mcpBase",      "value": "http://localhost:3001", "isSecret": false },
-          { "id": "var_mcpSessionId", "name": "mcpSessionId", "value": "",                     "isSecret": false }
+          { "id": "var_mcpProtocol",  "name": "mcpProtocol",  "value": "2026-07-28",           "isSecret": false }
         ]
       }
     ],
@@ -206,19 +206,21 @@
       },
       {
         "id": "col_mcp_streamable",
-        "name": "MCP — Streamable HTTP (2025-03-26)",
+        "name": "MCP — mcp-vertx Streamable HTTP (2026-07-28)",
         "auth": { "type": "none" },
         "icon": { "name": "globe", "color": "aqua" },
         "requests": [
           {
-            "id": "req_mcp_init",
-            "name": "1) Initialize session",
+            "id": "req_mcp_discover",
+            "name": "1) Discover capabilities",
             "method": "POST",
             "url": "{{mcpBase}}/mcp",
             "auth": { "type": "inherited" },
             "headers": [
-              { "enabled": true, "name": "Content-Type", "value": "application/json" },
-              { "enabled": true, "name": "Accept",       "value": "application/json" }
+              { "enabled": true, "name": "Content-Type",         "value": "application/json" },
+              { "enabled": true, "name": "Accept",               "value": "application/json, text/event-stream" },
+              { "enabled": true, "name": "MCP-Protocol-Version", "value": "{{mcpProtocol}}" },
+              { "enabled": true, "name": "Mcp-Method",           "value": "server/discover" }
             ],
             "queryParams": [],
             "pathParams": [],
@@ -226,7 +228,7 @@
               "type": "text",
               "text": {
                 "format": "application/json",
-                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"2025-03-26\",\n    \"capabilities\": {},\n    \"clientInfo\": { \"name\": \"httpie\", \"version\": \"1.0\" }\n  }\n}"
+                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"discover-1\",\n  \"method\": \"server/discover\",\n  \"params\": {\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientInfo\": { \"name\": \"httpie\", \"version\": \"1.0\" },\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}"
               }
             }
           },
@@ -237,9 +239,10 @@
             "url": "{{mcpBase}}/mcp",
             "auth": { "type": "inherited" },
             "headers": [
-              { "enabled": true, "name": "Content-Type",   "value": "application/json" },
-              { "enabled": true, "name": "Accept",         "value": "application/json" },
-              { "enabled": true, "name": "Mcp-Session-Id", "value": "{{mcpSessionId}}" }
+              { "enabled": true, "name": "Content-Type",         "value": "application/json" },
+              { "enabled": true, "name": "Accept",               "value": "application/json, text/event-stream" },
+              { "enabled": true, "name": "MCP-Protocol-Version", "value": "{{mcpProtocol}}" },
+              { "enabled": true, "name": "Mcp-Method",           "value": "tools/list" }
             ],
             "queryParams": [],
             "pathParams": [],
@@ -247,7 +250,7 @@
               "type": "text",
               "text": {
                 "format": "application/json",
-                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/list\"\n}"
+                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"tools-1\",\n  \"method\": \"tools/list\",\n  \"params\": {\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientInfo\": { \"name\": \"httpie\", \"version\": \"1.0\" },\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    }\n  }\n}"
               }
             }
           },
@@ -258,9 +261,11 @@
             "url": "{{mcpBase}}/mcp",
             "auth": { "type": "inherited" },
             "headers": [
-              { "enabled": true, "name": "Content-Type",   "value": "application/json" },
-              { "enabled": true, "name": "Accept",         "value": "application/json" },
-              { "enabled": true, "name": "Mcp-Session-Id", "value": "{{mcpSessionId}}" }
+              { "enabled": true, "name": "Content-Type",         "value": "application/json" },
+              { "enabled": true, "name": "Accept",               "value": "application/json, text/event-stream" },
+              { "enabled": true, "name": "MCP-Protocol-Version", "value": "{{mcpProtocol}}" },
+              { "enabled": true, "name": "Mcp-Method",           "value": "tools/call" },
+              { "enabled": true, "name": "Mcp-Name",             "value": "case.raiseTicket" }
             ],
             "queryParams": [],
             "pathParams": [],
@@ -268,81 +273,7 @@
               "type": "text",
               "text": {
                 "format": "application/json",
-                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"case.raiseTicket\",\n    \"arguments\": {\n      \"tradeId\": \"T-300\",\n      \"category\": \"ReferenceData\",\n      \"summary\": \"MCP test\"\n    }\n  }\n}"
-              }
-            }
-          },
-          {
-            "id": "req_mcp_ping",
-            "name": "4) Ping",
-            "method": "POST",
-            "url": "{{mcpBase}}/mcp",
-            "auth": { "type": "inherited" },
-            "headers": [
-              { "enabled": true, "name": "Content-Type",   "value": "application/json" },
-              { "enabled": true, "name": "Accept",         "value": "application/json" },
-              { "enabled": true, "name": "Mcp-Session-Id", "value": "{{mcpSessionId}}" }
-            ],
-            "queryParams": [],
-            "pathParams": [],
-            "body": {
-              "type": "text",
-              "text": {
-                "format": "application/json",
-                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"ping\"\n}"
-              }
-            }
-          },
-          {
-            "id": "req_mcp_delete",
-            "name": "5) Terminate session",
-            "method": "DELETE",
-            "url": "{{mcpBase}}/mcp",
-            "auth": { "type": "inherited" },
-            "headers": [
-              { "enabled": true, "name": "Mcp-Session-Id", "value": "{{mcpSessionId}}" }
-            ],
-            "queryParams": [],
-            "pathParams": [],
-            "body": { "type": "none" }
-          }
-        ]
-      },
-      {
-        "id": "col_mcp_sse",
-        "name": "MCP — Legacy SSE (2024-11-05)",
-        "auth": { "type": "none" },
-        "icon": { "name": "bubble", "color": "purple" },
-        "requests": [
-          {
-            "id": "req_sse_open",
-            "name": "1) Open SSE stream (note sessionId from endpoint event)",
-            "method": "GET",
-            "url": "{{mcpBase}}/sse",
-            "auth": { "type": "inherited" },
-            "headers": [],
-            "queryParams": [],
-            "pathParams": [],
-            "body": { "type": "none" }
-          },
-          {
-            "id": "req_sse_tools_list",
-            "name": "2) tools/list via POST /message",
-            "method": "POST",
-            "url": "{{mcpBase}}/message",
-            "auth": { "type": "inherited" },
-            "headers": [
-              { "enabled": true, "name": "Content-Type", "value": "application/json" }
-            ],
-            "queryParams": [
-              { "enabled": true, "name": "sessionId", "value": "{{mcpSessionId}}" }
-            ],
-            "pathParams": [],
-            "body": {
-              "type": "text",
-              "text": {
-                "format": "application/json",
-                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/list\"\n}"
+                "value": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": \"call-1\",\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"_meta\": {\n      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\",\n      \"io.modelcontextprotocol/clientInfo\": { \"name\": \"httpie\", \"version\": \"1.0\" },\n      \"io.modelcontextprotocol/clientCapabilities\": {}\n    },\n    \"name\": \"case.raiseTicket\",\n    \"arguments\": {\n      \"tradeId\": \"T-300\",\n      \"category\": \"ReferenceData\",\n      \"summary\": \"MCP test\"\n    }\n  }\n}"
               }
             }
           }

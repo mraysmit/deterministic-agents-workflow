@@ -246,12 +246,12 @@
         +   '<span class="node-badge badge-mcp">MCP</span>'
         +   '<span class="node-title">McpServerVerticle</span>'
         + '</div>'
-        + '<div class="node-desc">Exposes tools via Model Context Protocol — Streamable HTTP (2025-03-26) + legacy SSE (2024-11-05).</div>'
+        + '<div class="node-desc">Exposes tools through the sibling mcp-vertx server — stateless Streamable HTTP with schema validation and execution deadlines.</div>'
         + '<div class="node-meta">'
         +   chip('port ' + cfg.mcp.port)
         +   (cfg.mcp.basePath ? chip('basePath ' + cfg.mcp.basePath) : '')
         +   chip('POST /mcp')
-        +   chip('GET /sse')
+        +   chip('POST /mcp')
         + '</div>'
         + '</div>';
     }

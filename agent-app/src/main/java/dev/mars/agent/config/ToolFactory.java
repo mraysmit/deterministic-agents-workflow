@@ -5,14 +5,14 @@ import dev.mars.agent.tool.LookupTool;
 import dev.mars.agent.tool.NotifyTool;
 import dev.mars.agent.tool.PublishEventTool;
 import dev.mars.agent.tool.RaiseTicketTool;
-import dev.mars.mcp.tool.Tool;
+import dev.mars.agent.tool.AgentTool;
 import io.vertx.core.Vertx;
 
 import java.util.logging.Logger;
 
 /**
  * Factory that resolves tool type aliases from YAML configuration into
- * {@link Tool} instances.
+ * {@link AgentTool} instances.
  *
  * <h2>Supported types</h2>
  * <table>
@@ -37,7 +37,7 @@ public final class ToolFactory {
   private ToolFactory() {}
 
   /**
-   * Create a {@link Tool} from a type alias.
+   * Create an {@link AgentTool} from a type alias.
    *
    * @param type          the tool alias (e.g. {@code "publish-event"})
    * @param vertx         the Vert.x instance
@@ -45,9 +45,9 @@ public final class ToolFactory {
    * @return a configured tool instance
    * @throws IllegalArgumentException if the type is unknown
    */
-  public static Tool create(String type, Vertx vertx, String eventsAddress) {
+  public static AgentTool create(String type, Vertx vertx, String eventsAddress) {
     LOG.info("Creating tool: type=" + type);
-    Tool tool = switch (type) {
+    AgentTool tool = switch (type) {
       case "publish-event" -> new PublishEventTool(vertx, eventsAddress);
       case "raise-ticket"  -> new RaiseTicketTool(vertx, eventsAddress);
       case "lookup"         -> new LookupTool();

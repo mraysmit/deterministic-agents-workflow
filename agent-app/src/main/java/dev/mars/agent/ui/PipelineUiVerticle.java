@@ -1,7 +1,7 @@
 package dev.mars.agent.ui;
 
 import dev.mars.agent.config.PipelineConfig;
-import dev.mars.mcp.tool.Tool;
+import dev.mars.agent.tool.AgentTool;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.json.JsonArray;
@@ -36,13 +36,13 @@ public class PipelineUiVerticle extends AbstractVerticle {
   private static final Logger LOG = Logger.getLogger(PipelineUiVerticle.class.getName());
 
   private final PipelineConfig pipelineConfig;
-  private final Collection<Tool> tools;
+  private final Collection<AgentTool> tools;
 
   public PipelineUiVerticle(PipelineConfig pipelineConfig) {
     this(pipelineConfig, Collections.emptyList());
   }
 
-  public PipelineUiVerticle(PipelineConfig pipelineConfig, Collection<Tool> tools) {
+  public PipelineUiVerticle(PipelineConfig pipelineConfig, Collection<AgentTool> tools) {
     this.pipelineConfig = pipelineConfig;
     this.tools = tools;
   }
@@ -54,7 +54,7 @@ public class PipelineUiVerticle extends AbstractVerticle {
     // ── JSON API ────────────────────────────────────────────────────
     router.get("/api/tools").handler(ctx -> {
       JsonArray arr = new JsonArray();
-      for (Tool t : tools) {
+      for (AgentTool t : tools) {
         arr.add(new JsonObject()
             .put("name", t.name())
             .put("description", t.description())

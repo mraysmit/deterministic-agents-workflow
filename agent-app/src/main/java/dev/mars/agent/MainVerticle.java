@@ -15,6 +15,7 @@ import dev.mars.agent.memory.MemoryStore;
 import dev.mars.agent.processor.DeterministicFailureProcessorVerticle;
 import dev.mars.agent.processor.FailureHandler;
 import dev.mars.agent.runner.AgentRunnerVerticle;
+import dev.mars.agent.tool.AgentTool;
 import dev.mars.agent.ui.PipelineUiVerticle;
 import dev.mars.agent.ui.WorkflowUiVerticle;
 import dev.mars.mcp.tool.Tool;
@@ -36,6 +37,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 import java.util.logging.Logger;
 import java.util.logging.LogManager;
 
@@ -125,10 +127,13 @@ public class MainVerticle extends AbstractVerticle {
     String events  = cfg.addresses().events();
 
     // ── Resolve tools via factory (before LLM — OpenAI needs tool schemas) ──
-    Tool[] toolArray = cfg.tools().stream()
+    AgentTool[] toolArray = cfg.tools().stream()
         .map(tc -> ToolFactory.create(tc.type(), vertx, events))
-        .toArray(Tool[]::new);
-    var tools = ToolRegistry.of(toolArray);
+        .toArray(AgentTool[]::new);
+    Map<String, Tool> mcpTools = ToolRegistry.of(toolArray);
+    Map<String, AgentTool> tools = mcpTools.entrySet().stream()
+        .collect(Collectors.toUnmodifiableMap(
+            Map.Entry::getKey, entry -> (AgentTool) entry.getValue()));
     LOG.info("Tools resolved: " + tools.keySet());
 
     // ── Resolve LLM client via factory ──────────────────────────────
@@ -184,7 +189,7 @@ public class MainVerticle extends AbstractVerticle {
         if (mcpCfg != null && mcpCfg.enabled()) {
           LOG.info("MCP server enabled — deploying McpServerVerticle on port " + childConfig.getInteger("mcp.port"));
           return vertx.deployVerticle(
-              new McpServerVerticle(tools, cfg.schema().caseIdField()), childOpts);
+              new McpServerVerticle(mcpTools, cfg.schema().caseIdField()), childOpts);
         }
         LOG.info("MCP server not enabled — skipping");
         return Future.succeededFuture(id);
@@ -199,7 +204,9 @@ public class MainVerticle extends AbstractVerticle {
             new WorkflowUiVerticle(inbound, events, cfg.http().requestTimeoutMs(),
                 childConfig.getInteger("ui.port", 8081),
                 cfg.llm().type(),
-                cfg.llm().params().get("model")), childOpts);
+                cfg.llm().params().get("model"),
+                cfg.schema().allowedFields(),
+                cfg.schema().requiredFields()), childOpts);
       })
       .onSuccess(id -> {
         int httpPort      = childConfig.getInteger("http.port", 8080);

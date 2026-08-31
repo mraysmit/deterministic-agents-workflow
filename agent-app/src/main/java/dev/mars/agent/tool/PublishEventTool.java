@@ -1,7 +1,5 @@
 package dev.mars.agent.tool;
-import dev.mars.mcp.tool.Tool;
-
-import dev.mars.mcp.tool.AgentContext;
+import dev.mars.agent.runner.AgentContext;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -29,7 +27,7 @@ import java.util.logging.Logger;
  * }
  * </pre>
  */
-public class PublishEventTool implements Tool {
+public class PublishEventTool implements AgentTool {
 
   private static final Logger LOG = Logger.getLogger(PublishEventTool.class.getName());
 
